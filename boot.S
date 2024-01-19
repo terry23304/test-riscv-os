@@ -4,12 +4,16 @@
 hello: .ascii "Hello, RISC-V!\n\0"
 iamhart: .ascii "I am hart \0"
 newline: .ascii "\n\0"
+interrupts_status: .ascii  "Interrupt Enabled: "
 
 _hartlock:
-	.skip 1,0
+	.skip 8,0
 
 _scratchpad:
 	.skip 1024,0
+
+_stacks:
+	.skip 8192,0
 
 .section .text.init
 .globl _entry
@@ -17,21 +21,57 @@ _scratchpad:
 _entry:
     # hardware theard 0 init, others sleep
     csrr t0, mhartid
-    bnez t0, _announce
+    # setup stack for hart 0 ~ 3
+	la t1, _stacks
+	li t2, 1024
+	mul t3, t2, t0
+	add sp, t3, t1
+
+	bnez t0, _announce
 
     # setup uart and print hello message
     call _init_uart
     la a0, hello
     call _write_uart
+	call _print_MIE_bit
+
     j _announce
     wfi # wait for interrupt
 
+.macro push
+	sd ra, 0(sp)
+	addi sp, sp, 8
+.endm
+
+.macro pop
+	addi sp, sp, -8
+	ld ra, 0(sp)
+.endm
+
+_print_MIE_bit:
+	push
+	csrr t0, mstatus
+	# MIE bit is 3rd bit
+	andi t0, t2, 8
+	la a0, interrupts_status
+	call _write_uart
+
+	srai t2, t2, 3
+	addi t1, t2, 0x30
+	la a0, _scratchpad
+	# store ASCII Hart ID into scratchpad
+	sb t1, 0(a0)
+	call _write_newline
+
+	pop
+	ret
+
 _write_newline:
-    mv s0, ra
+    push
 	call _write_uart
 	la a0, newline
 	call _write_uart
-	mv ra, s0
+	pop
 	ret
 
 _init_uart:
@@ -44,16 +84,19 @@ _init_uart:
     ret
 
 _write_uart:
+	push
+_write_uart_loop:
 	li t1, 0x10000005
-	beqz t1, _write_uart
+	beqz t1, _write_uart_loop
 	li t1, 0x10000000
 	lb t2, 0(a0)
 	beqz t2, _write_uart_done
 	sb t2, 0(t1)
 	addi a0, a0, 1
-	j _write_uart
+	j _write_uart_loop
 
 _write_uart_done:
+	pop
     ret
 
 _announce:
