@@ -7,7 +7,7 @@ CC = riscv64-unknown-elf-as
 LD = riscv64-unknown-elf-ld
 
 QEMU = qemu-system-riscv64
-QEMU_FLAGS = -machine virt -cpu rv64 -smp 4 -m 128M -nographic -serial mon:stdio -bios none
+QEMU_FLAGS = -machine virt -cpu rv64 -smp 4 -m 128M -serial mon:stdio -device VGA -bios none
 
 all: $(TARGET)
 

@@ -27,7 +27,6 @@ _write_uart_char:
 	pop ra
 	ret
 
-.align 12
 # Write a string to UART
 # a0: pointer to the string
 _write_uart:

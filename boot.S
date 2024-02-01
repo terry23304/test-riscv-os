@@ -2,11 +2,15 @@
 .include "macro.S"
 .include "vm.S"
 .include "uart.S"
+.include "pci.S"
+.include "hex.S"
+.include "vga.S"
 .section .data
 
 hello: .ascii "Hello, RISC-V!\n\0"
 iamhart: .ascii "I am hart \0"
 newline: .ascii "\n\0"
+tablespace: .ascii  "    \0"
 supervisor_mode: .ascii "Enter Supervisor Mode\n\0"
 mmode_trap_warning: .ascii "M Mode Trap cause: \0"
 smode_trap_warning: .ascii "S Mode Trap cause: \0"
@@ -20,7 +24,13 @@ write_uart_address: .ascii "Uart: \0"
 
 walkingpagetables: .ascii "Walking Page Tables...\0"
 endwalkingpagetables: .ascii "Walking Page Tables Complete\0"
+pcidevices: .ascii "PCI Devices1\0"
+pcivendorid: .ascii "Vendor1\0"
+pcideviceid: .ascii "Device\0"
+tableheader: .ascii "--------------------------------\0"
 
+setup_qemu_pci_bridge: .ascii "Identified QEMU PCI Bridge\0"
+setup_qemu_vga: .ascii "Setting Up QEMU VGA...\0"
 
 _hartlock:
 	.skip 8,0
@@ -58,7 +68,7 @@ _entry:
 	
 	# set supervisor mode trap vector
 	la t0, _supervisor_trap
-	csrw stvec,t0
+	csrw stvec, t0
 
 	# configure Physical Memory Protection to give supervisor mode
   	# access to all of physical memory.
@@ -146,13 +156,40 @@ _entry:
 	la a0, endwalkingpagetables
 	call _write_newline
 
+	call _setup_pci
+
 	# set mepc to example page
 	la t0, _example_page
 	csrw mepc, t0
 	mret
 
-    j _announce
     wfi # wait for interrupt
+
+_announce:
+	la t0, _hartlock
+	lw t0, 0(t0)
+	csrr t1, mhartid
+	bne t0, t1, _announce
+
+	la a0, iamhart
+	call _write_uart
+
+	# add 0x30 to HART ID to get ASCII number
+	csrr t1, mhartid
+	li t2, 0x30
+	add t1, t2, t1
+	la a0, _scratchpad
+	# store ASCII Hart ID into scratchpad
+	sb t1, 0(a0)
+	call _write_newline
+
+	# increment the HART lock
+	csrr t0, mhartid
+	addi t1, t0, 1
+	la t2, _hartlock
+	sw t1, 0(t2)
+
+	j _wait
 
 _supervisor_trap:
 	la a0, smode_trap_warning
@@ -171,7 +208,6 @@ _machine_trap:
 	call _write_uart
 
 	csrr a0, mcause
-	addi t0, a0, 0x30
 	call _print_hex
 	wfi
 
@@ -207,32 +243,6 @@ _print_misa_extension_inc:
 
 	pop ra
 	ret
-
-_announce:
-	la t0, _hartlock
-	lw t0, 0(t0)
-	csrr t1, mhartid
-	bne t0, t1, _announce
-
-	la a0, iamhart
-	call _write_uart
-
-	# add 0x30 to HART ID to get ASCII number
-	csrr t1, mhartid
-	li t2, 0x30
-	add t1, t2, t1
-	la a0, _scratchpad
-	# store ASCII Hart ID into scratchpad
-	sb t1, 0(a0)
-	call _write_newline
-
-	# increment the HART lock
-	csrr t0, mhartid
-	addi t1, t0, 1
-	la t2, _hartlock
-	sw t1, 0(t2)
-
-	j _wait
 
 _wait:
 	wfi
@@ -280,6 +290,8 @@ _kalloc:
 _example_page:
 	la a0, supervisor_mode
 	call _write_uart
+	la a0, _page_table_start
+	ld a0, 0(a0)
 	wfi
 	.skip 4096
 
